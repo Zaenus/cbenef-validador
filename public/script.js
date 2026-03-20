@@ -84,6 +84,8 @@ if (uploadForm) {
   });
 }
 
+}
+
 // === 3. Bulk Validation of Company Products ===
 const bulkForm = document.getElementById('bulkProductsForm');
 if (bulkForm) {
@@ -163,6 +165,98 @@ if (bulkForm) {
 
     } catch (err) {
       console.error('Erro na validação em massa:', err);
+      resultDiv.innerHTML = `<div style="color:#dc3545; padding:12px; background:#ffebee; border-radius:6px;">
+        Erro de conexão ou processamento: ${err.message}
+      </div>`;
+    }
+  });
+}
+
+// === 4. Assign cBenef to Products ===
+const assignCbenefForm = document.getElementById('assignCbenefForm');
+if (assignCbenefForm) {
+  assignCbenefForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const fileInput = document.getElementById('assignFile');
+    if (!fileInput.files?.[0]) return;
+
+    const formData = new FormData();
+    formData.append('products', fileInput.files[0]);
+
+    const resultDiv = document.getElementById('assignCbenefResult');
+    resultDiv.innerHTML = '<p style="color:#666; text-align:center;">Processando produtos... Aguarde.</p>';
+
+    try {
+      const res = await fetch('/api/assign-cbenef', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) throw new Error(`Erro HTTP ${res.status}`);
+
+      const data = await res.json();
+
+      if (!data.success) {
+        resultDiv.innerHTML = `<div style="color:#dc3545; padding:12px; background:#ffebee; border-radius:6px;">
+          Erro: ${data.error || 'Falha ao processar o arquivo'}
+        </div>`;
+        return;
+      }
+
+      let html = `
+        <p style="font-weight:bold; margin-bottom:12px;">
+          Processados ${data.total} produtos
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Linha</th>
+              <th>Código</th>
+              <th>Descrição</th>
+              <th>Cód. NCM</th>
+              <th>CFOP</th>
+              <th>CST</th>
+              <th>cBenef Sugerido</th>
+              <th>Opções Disponíveis</th>
+              <th>Status</th>
+              <th>Mensagem</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      data.results.forEach(r => {
+        const statusClass =
+          r.status === 'OK'    ? 'status-ok' :
+          r.status === 'ERRO'  ? 'status-erro' :
+          r.status === 'AVISO' ? 'status-aviso' : '';
+
+        const opcoesHtml = r.opcoes && r.opcoes.length > 1
+          ? `<span title="${r.opcoes.join(', ')}">${r.opcoes.slice(0, 3).join(', ')}${r.opcoes.length > 3 ? ` (+${r.opcoes.length - 3})` : ''}</span>`
+          : (r.opcoes && r.opcoes.length === 1 ? r.opcoes[0] : '-');
+
+        html += `
+          <tr>
+            <td>${r.row}</td>
+            <td>${r.codigo}</td>
+            <td>${r.descricao}</td>
+            <td>${r.ncm}</td>
+            <td>${r.cfop}</td>
+            <td>${r.cst}</td>
+            <td><strong>${r.cbenef_sugerido}</strong></td>
+            <td style="font-size:0.85em;">${opcoesHtml}</td>
+            <td class="${statusClass}">${r.status}</td>
+            <td>${r.message}</td>
+          </tr>
+        `;
+      });
+
+      html += '</tbody></table>';
+      resultDiv.innerHTML = html;
+
+    } catch (err) {
+      console.error('Erro na atribuição de cBenef:', err);
       resultDiv.innerHTML = `<div style="color:#dc3545; padding:12px; background:#ffebee; border-radius:6px;">
         Erro de conexão ou processamento: ${err.message}
       </div>`;

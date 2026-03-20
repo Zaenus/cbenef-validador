@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const XLSX = require('xlsx');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const PORT = 3000;
@@ -12,6 +13,15 @@ const PORT = 3000;
 app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static('public'));
+
+// Rate limiter for file-upload endpoints (max 30 requests per 15 minutes per IP)
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas requisições. Tente novamente em alguns minutos.' }
+});
 
 // Multer setup: store files temporarily in 'uploads/' folder
 const upload = multer({ dest: 'uploads/' });
@@ -78,7 +88,7 @@ app.post('/api/validate', (req, res) => {
 });
 
 // NEW: Upload + parse XLSX
-app.post('/api/upload-table', upload.single('table'), (req, res) => {
+app.post('/api/upload-table', uploadLimiter, upload.single('table'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
@@ -214,7 +224,7 @@ app.post('/api/upload-table', upload.single('table'), (req, res) => {
 // ────────────────────────────────────────────────
 // Bulk validation of your internal products
 // ────────────────────────────────────────────────
-app.post('/api/bulk-validate-products', upload.single('products'), (req, res) => {
+app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
@@ -326,6 +336,170 @@ app.post('/api/bulk-validate-products', upload.single('products'), (req, res) =>
       total: results.length,
       results
     });
+
+  } catch (err) {
+    console.error(err);
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.status(500).json({ error: 'Erro ao processar arquivo: ' + err.message });
+  }
+});
+
+// ────────────────────────────────────────────────
+// Helpers for parsing CST and CFOP from "Tribut." column
+// ────────────────────────────────────────────────
+
+const VALID_CSTS = ['00', '10', '20', '30', '40', '41', '50', '51', '60', '70', '90'];
+
+function parseCSTFromTribut(tributStr) {
+  if (!tributStr) return '';
+  const s = String(tributStr).trim();
+
+  // Direct exact match (e.g. "40", "41", "0" → "00")
+  const direct = s.padStart(2, '0');
+  if (VALID_CSTS.includes(direct)) return direct;
+
+  // 2-digit number embedded in the string (e.g. "CST: 40", "5102/40")
+  const numMatches = s.match(/\b(\d{1,2})\b/g) || [];
+  for (const m of numMatches) {
+    const padded = m.padStart(2, '0');
+    if (VALID_CSTS.includes(padded)) return padded;
+  }
+
+  // Text-based fallbacks (normalized, no accents)
+  const norm = s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/nao.tributad|nao.incid|nao_tributad/.test(norm)) return '41';
+  if (/tributad/.test(norm)) return '00';
+  if (/isen/.test(norm)) return '40';
+  if (/reduc/.test(norm)) return '20';
+  if (/suspens/.test(norm)) return '50';
+  if (/diferim/.test(norm)) return '60';
+  if (/outr/.test(norm)) return '90';
+
+  return '';
+}
+
+function parseCFOPFromTribut(tributStr) {
+  if (!tributStr) return '';
+  // CFOP: 4-digit code starting with 1-3, 5, 6, or 7
+  const m = String(tributStr).match(/\b([1-35-7][0-9]{3})\b/);
+  return m ? m[1] : '';
+}
+
+// ────────────────────────────────────────────────
+// Assign cBenef to products based on CST/CFOP
+// ────────────────────────────────────────────────
+app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    }
+
+    const filePath = req.file.path;
+    let rows = [];
+
+    const originalName = (req.file.originalname || '').toLowerCase();
+
+    if (originalName.endsWith('.csv')) {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const lines = content.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) throw new Error('CSV vazio ou sem cabeçalho');
+      const sep = lines[0].includes(';') ? ';' : ',';
+      const headers = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g, ''));
+      rows = lines.slice(1).map(line => {
+        const values = line.split(sep).map(v => v.trim().replace(/^"|"$/g, ''));
+        const obj = {};
+        headers.forEach((h, i) => { obj[h] = values[i] || ''; });
+        return obj;
+      });
+    } else {
+      const workbook = XLSX.readFile(filePath);
+      const sheetName = workbook.SheetNames[0];
+      rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+    }
+
+    fs.unlinkSync(filePath);
+
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'Nenhum produto encontrado no arquivo.' });
+    }
+
+    // Case-insensitive field lookup with accent normalisation
+    const normalizeKey = k => String(k || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '');
+
+    const getField = (obj, candidates) => {
+      const objKeys = Object.keys(obj);
+      for (const candidate of candidates) {
+        // Exact key
+        if (obj[candidate] !== undefined) return String(obj[candidate] || '').trim();
+        // Case-insensitive / accent-insensitive key
+        const normCand = normalizeKey(candidate);
+        const found = objKeys.find(k => normalizeKey(k) === normCand);
+        if (found !== undefined) return String(obj[found] || '').trim();
+      }
+      return '';
+    };
+
+    const results = rows.map((row, idx) => {
+      const rowNum = idx + 2;
+
+      const codigo   = getField(row, ['Código', 'Codigo', 'codigo', 'SKU', 'ID', 'codigo_produto']);
+      const descricao = getField(row, ['Descrição', 'Descricao', 'descricao', 'Produto', 'nome_produto', 'Descricao do Produto']);
+      const tribut   = getField(row, ['Tribut.', 'Tribut', 'Tributação', 'Tributacao', 'tributacao', 'CST', 'cst', 'tributacao_icms']);
+      const ncm      = getField(row, ['Cód. NCM', 'Cod. NCM', 'Código NCM', 'Codigo NCM', 'NCM', 'ncm', 'codigo_ncm']);
+
+      // Allow explicit separate CFOP / CST columns; fall back to parsing Tribut.
+      const cfopExplicit = getField(row, ['CFOP', 'cfop']);
+      const cstExplicitRaw = getField(row, ['CST', 'cst', 'CSOSN', 'csosn']).replace(/\D/g, '');
+      const cstExplicit = cstExplicitRaw ? cstExplicitRaw.padStart(2, '0') : '';
+
+      const cfop = cfopExplicit || parseCFOPFromTribut(tribut);
+      const cst  = (cstExplicit && VALID_CSTS.includes(cstExplicit))
+        ? cstExplicit
+        : parseCSTFromTribut(tribut);
+
+      // Find applicable cBenef entries by CST
+      const applicableEntries = cst
+        ? officialTable.filter(item => item.applicableCST.includes(cst))
+        : [];
+
+      let cbenefSugerido = '-';
+      let status = 'INFO';
+      let message = '';
+
+      if (!cst) {
+        status = 'AVISO';
+        message = 'CST não identificado na coluna "Tribut."';
+      } else if (applicableEntries.length === 0) {
+        status = 'INFO';
+        message = `CST ${cst} não requer cBenef`;
+        cbenefSugerido = 'Não aplicável';
+      } else {
+        // Prefer "SEM CBENEF" as the default suggestion when present, otherwise first entry
+        const semCbenef = applicableEntries.find(e => e.code === 'SEM CBENEF');
+        cbenefSugerido = semCbenef ? semCbenef.code : applicableEntries[0].code;
+        status = 'OK';
+        message = applicableEntries.length === 1
+          ? `1 opção para CST ${cst}`
+          : `${applicableEntries.length} opções disponíveis para CST ${cst}`;
+      }
+
+      return {
+        row: rowNum,
+        codigo: codigo || '(sem código)',
+        descricao: descricao || '(sem descrição)',
+        ncm: ncm || '-',
+        cfop: cfop || '-',
+        cst: cst || '-',
+        cbenef_sugerido: cbenefSugerido,
+        opcoes: applicableEntries.map(e => e.code),
+        status,
+        message
+      };
+    });
+
+    res.json({ success: true, total: results.length, results });
 
   } catch (err) {
     console.error(err);

@@ -127,6 +127,25 @@
 
   <div id="bulkProductsResult" class="result-box" style="max-height: 500px; overflow-y: auto;"></div>
 
+  <!-- 4. Atribuir cBenef aos Produtos -->
+  <hr>
+
+  <h2>4. Atribuir cBenef aos Produtos</h2>
+  <p>
+    Envie uma planilha (.xlsx ou .csv) com os produtos da empresa. O arquivo deve conter as colunas:<br>
+    <code>Código</code>, <code>Descrição</code>, <code>Tribut.</code>, <code>Cód. NCM</code><br>
+    <small>A coluna <strong>Tribut.</strong> deve conter o código CST (ex.: <em>40</em>) ou texto descritivo (ex.: <em>Isento</em>).
+    Colunas opcionais <code>CFOP</code> e <code>CST</code> são reconhecidas quando presentes.</small>
+  </p>
+
+  <form id="assignCbenefForm" enctype="multipart/form-data">
+    <label for="assignFile">Arquivo (.xlsx ou .csv):</label>
+    <input type="file" id="assignFile" accept=".xlsx,.csv" required>
+    <button type="submit">Atribuir cBenef</button>
+  </form>
+
+  <div id="assignCbenefResult" class="result-box" style="max-height: 600px; overflow-y: auto;"></div>
+
   <!-- JavaScript -->
   <script src="script.js"></script>
 
