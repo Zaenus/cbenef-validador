@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>cBenef Validator</title>
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      max-width: 900px;
+      margin: 40px auto;
+      line-height: 1.5;
+      color: #333;
+    }
+    h1, h2 {
+      color: #0066cc;
+    }
+    form {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    label {
+      font-weight: bold;
+    }
+    input, select, button {
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      background: #0066cc;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover {
+      background: #0052a3;
+    }
+    .result-box {
+      margin-top: 20px;
+      padding: 15px;
+      border: 2px solid #ddd;
+      border-radius: 6px;
+      background: #f9f9f9;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+      font-size: 0.95em;
+    }
+    th, td {
+      padding: 10px;
+      border: 1px solid #dee2e6;
+      text-align: left;
+    }
+    th {
+      background: #f0f0f0;
+      font-weight: bold;
+    }
+    .status-ok    { color: #28a745; font-weight: bold; }
+    .status-erro  { color: #dc3545; font-weight: bold; }
+    .status-aviso { color: #fd7e14; font-weight: bold; }
+    hr {
+      margin: 50px 0 30px;
+      border: 0;
+      border-top: 1px solid #eee;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>✅ Validador de cBenef (Código de Benefício Fiscal)</h1>
+
+  <!-- 1. Validação individual de cBenef -->
+  <h2>1. Validar um código cBenef</h2>
+  <form id="form">
+    <label>Estado (UF):</label>
+    <select id="uf">
+      <option value="">Todos</option>
+      <option value="SP">SP</option>
+      <option value="ES">ES</option>
+      <option value="SC">SC</option>
+      <!-- Adicione outros estados conforme necessário -->
+    </select>
+
+    <label>Código cBenef (ex: SP011540):</label>
+    <input type="text" id="cbenef" placeholder="SP011540" required>
+
+    <label>CST (opcional):</label>
+    <input type="text" id="cst" placeholder="00">
+
+    <button type="submit">Validar</button>
+  </form>
+
+  <div id="result" class="result-box"></div>
+
+  <!-- 2. Atualizar tabela oficial -->
+  <hr>
+
+  <h2>2. Atualizar Tabela Oficial (SEFAZ)</h2>
+  <form id="uploadForm" enctype="multipart/form-data">
+    <label>Selecione a tabela oficial (.xlsx ou .xls):</label>
+    <input type="file" id="tableFile" accept=".xlsx,.xls" required>
+    <button type="submit">Enviar e Processar</button>
+  </form>
+
+  <div id="uploadResult" class="result-box"></div>
+
+  <!-- 3. Validação em massa dos produtos da empresa -->
+  <hr>
+
+  <h2>3. Validar Produtos da Empresa (em massa)</h2>
+  <p>
+    Envie uma planilha (.xlsx ou .csv) contendo as colunas:<br>
+    <code>codigo_produto</code>, <code>nome_produto</code>, <code>ncm</code>, <code>cfop</code>, <code>cst</code>, <code>cbenef</code>
+  </p>
+
+  <form id="bulkProductsForm" enctype="multipart/form-data">
+    <label for="productsFile">Arquivo (.xlsx ou .csv):</label>
+    <input type="file" id="productsFile" accept=".xlsx,.csv" required>
+    <button type="submit">Validar Produtos</button>
+  </form>
+
+  <div id="bulkProductsResult" class="result-box" style="max-height: 500px; overflow-y: auto;"></div>
+
+  <!-- JavaScript -->
+  <script src="script.js"></script>
+
+</body>
+</html>
