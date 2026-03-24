@@ -792,6 +792,39 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
   }
 });
 
+// POST /api/export-assign-cbenef - Export assign-cBenef results to Excel
+app.post('/api/export-assign-cbenef', (req, res) => {
+  const { results } = req.body;
+
+  if (!Array.isArray(results) || results.length === 0) {
+    return res.status(400).json({ error: 'Nenhum resultado para exportar.' });
+  }
+
+  const worksheetData = results.map(r => ({
+    'Linha': r.row,
+    'Código': r.codigo,
+    'Descrição': r.descricao,
+    'NCM': r.ncm,
+    'CEST': r.cest,
+    'GTIN': r.gtin,
+    'CFOP': r.cfop,
+    'CST': r.cst,
+    'cBenef Recomendado': r.cbenef_sugerido,
+    'Status': r.status,
+    'Mensagem': r.message
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(worksheetData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'cBenef');
+
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Disposition', 'attachment; filename="atribuir-cbenef.xlsx"');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buffer);
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
 });

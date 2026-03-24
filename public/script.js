@@ -228,6 +228,8 @@ if (ncmMappingForm) {
 }
 
 const assignCbenefForm = document.getElementById('assignCbenefForm');
+let lastAssignCbenefResults = null;
+
 if (assignCbenefForm) {
   assignCbenefForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -239,7 +241,10 @@ if (assignCbenefForm) {
     formData.append('products', fileInput.files[0]);
 
     const resultDiv = document.getElementById('assignCbenefResult');
+    const exportDiv = document.getElementById('assignCbenefExport');
     resultDiv.innerHTML = '<p style="color:#666; text-align:center;">Processando produtos... Aguarde.</p>';
+    exportDiv.style.display = 'none';
+    lastAssignCbenefResults = null;
 
     try {
       const res = await fetch('/api/assign-cbenef', {
@@ -307,11 +312,44 @@ if (assignCbenefForm) {
       html += '</tbody></table>';
       resultDiv.innerHTML = html;
 
+      lastAssignCbenefResults = data.results;
+      exportDiv.style.display = 'block';
+
     } catch (err) {
       console.error('Erro na atribuição de cBenef:', err);
       resultDiv.innerHTML = `<div style="color:#dc3545; padding:12px; background:#ffebee; border-radius:6px;">
         Erro de conexão ou processamento: ${err.message}
       </div>`;
+    }
+  });
+}
+
+const exportAssignCbenefBtn = document.getElementById('exportAssignCbenefBtn');
+if (exportAssignCbenefBtn) {
+  exportAssignCbenefBtn.addEventListener('click', async () => {
+    if (!lastAssignCbenefResults) return;
+
+    try {
+      const res = await fetch('/api/export-assign-cbenef', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ results: lastAssignCbenefResults })
+      });
+
+      if (!res.ok) throw new Error(`Erro HTTP ${res.status}`);
+
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'atribuir-cbenef.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Erro ao exportar:', err);
+      alert('Erro ao exportar para Excel: ' + err.message);
     }
   });
 }
