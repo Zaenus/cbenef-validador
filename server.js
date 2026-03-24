@@ -452,7 +452,8 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
             if (confirmed) return confirmed.code;
           }
         }
-        return null;
+        // Fall back to the first specific entry when NCM mapping cannot narrow it down
+        return specificEntries[0].code;
       };
 
       if (!cbenef || cbenef === '-') {
@@ -460,8 +461,8 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
         response.status = 'AVISO';
         response.cbenef_sugerido = sugerido || '-';
         response.message = sugerido
-          ? `cBenef não informado. Sugestão para CST ${cst}: ${sugerido}`
-          : `cBenef não informado. ${cstEntries.length} opções disponíveis para CST ${cst} — verificar qual se aplica ao produto.`;
+          ? `cBenef não informado. Código recomendado para CST ${cst}: ${sugerido}`
+          : `cBenef não informado. Nenhum cBenef encontrado para CST ${cst}.`;
         return response;
       }
 
@@ -475,8 +476,8 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
         response.status = 'ERRO';
         response.cbenef_sugerido = sugerido || '-';
         response.message = sugerido
-          ? `cBenef não existe na tabela oficial. Sugestão para CST ${cst}: ${sugerido}`
-          : `cBenef não existe na tabela oficial. ${cstEntries.length > 0 ? `${cstEntries.length} opções disponíveis para CST ${cst} — verificar qual se aplica ao produto.` : ''}`;
+          ? `cBenef não existe na tabela oficial. Código recomendado para CST ${cst}: ${sugerido}`
+          : `cBenef não existe na tabela oficial. Nenhum cBenef encontrado para CST ${cst}.`;
         return response;
       }
 
@@ -495,8 +496,8 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
         response.cbenef_sugerido = sugerido || '-';
         response.status = 'ERRO';
         response.message = sugerido
-          ? `CST ${cst} NÃO permitido para este cBenef. Sugestão: ${sugerido}`
-          : `CST ${cst} NÃO permitido (permitidos: ${match.applicableCST.join(', ') || 'nenhum listado'}). ${cstEntries.length > 0 ? `${cstEntries.length} opções disponíveis para CST ${cst} — verificar qual se aplica.` : ''}`;
+          ? `CST ${cst} NÃO permitido para este cBenef. Código recomendado: ${sugerido}`
+          : `CST ${cst} NÃO permitido (permitidos: ${match.applicableCST.join(', ') || 'nenhum listado'}).`;
       }
 
       return response;
@@ -726,9 +727,6 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
         (GENERIC_CODES.includes(e.code) ? genericEntries : specificEntries).push(e);
       }
 
-      // Sorted opcoes: specific entries first, generic catch-all codes at the end
-      const sortedOpcoes = [...specificEntries, ...genericEntries].map(e => e.code);
-
       let cbenefSugerido = '-';
       let status = 'INFO';
       let message = '';
@@ -744,12 +742,12 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
         // Only one option — suggest it directly
         cbenefSugerido = applicableEntries[0].code;
         status = 'OK';
-        message = `1 opção para CST ${cst}: ${cbenefSugerido}`;
+        message = `cBenef identificado para CST ${cst}: ${cbenefSugerido}`;
       } else if (specificEntries.length === 0) {
         // Only generic options available (e.g. SEM CBENEF / SP099090)
         cbenefSugerido = 'SEM CBENEF';
         status = 'OK';
-        message = `${applicableEntries.length} opções para CST ${cst}`;
+        message = `cBenef identificado para CST ${cst}: SEM CBENEF`;
       } else if (specificEntries.length === 1) {
         // Exactly one specific benefit matches this CST — suggest it
         cbenefSugerido = specificEntries[0].code;
@@ -762,15 +760,12 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
           ? specificEntries.find(e => e.code === ncmEntry.cbenef)
           : null;
 
-        if (confirmedEntry) {
-          cbenefSugerido = confirmedEntry.code;
-          status = 'OK';
-          message = `cBenef identificado por NCM ${ncm} / CST ${cst}: ${cbenefSugerido}`;
-        } else {
-          cbenefSugerido = '-';
-          status = 'AVISO';
-          message = `${applicableEntries.length} opções disponíveis para CST ${cst} — verificar qual se aplica ao produto`;
-        }
+        // Use NCM-confirmed entry when available, otherwise fall back to the first specific entry
+        cbenefSugerido = confirmedEntry ? confirmedEntry.code : specificEntries[0].code;
+        status = confirmedEntry ? 'OK' : 'AVISO';
+        message = confirmedEntry
+          ? `cBenef identificado por NCM ${ncm} / CST ${cst}: ${cbenefSugerido}`
+          : `cBenef recomendado para CST ${cst}: ${cbenefSugerido} — confirme se é o correto para este produto`;
       }
 
       return {
@@ -783,7 +778,6 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
         cfop: cfop || '-',
         cst: cst || '-',
         cbenef_sugerido: cbenefSugerido,
-        opcoes: sortedOpcoes,
         status,
         message
       };
