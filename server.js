@@ -275,9 +275,22 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
         description: ''
       };
 
+      // Helper: find the best cBenef suggestion for a given CST
+      const suggestCbenef = (cstCode) => {
+        if (!cstCode || cstCode === '-') return null;
+        const entries = officialTable.filter(item => item.applicableCST.includes(cstCode));
+        if (entries.length === 0) return null;
+        const semCbenef = entries.find(e => e.code === 'SEM CBENEF');
+        return semCbenef ? semCbenef.code : entries[0].code;
+      };
+
       if (!cbenef || cbenef === '-') {
+        const sugerido = suggestCbenef(cst);
         response.status = 'AVISO';
-        response.message = 'cBenef não informado. Verifique se o CST exige preenchimento.';
+        response.cbenef_sugerido = sugerido || '-';
+        response.message = sugerido
+          ? `cBenef não informado. Sugestão para CST ${cst}: ${sugerido}`
+          : 'cBenef não informado. Verifique se o CST exige preenchimento.';
         return response;
       }
 
@@ -287,8 +300,12 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
       );
 
       if (matches.length === 0) {
+        const sugerido = suggestCbenef(cst);
         response.status = 'ERRO';
-        response.message = 'cBenef não existe na tabela oficial.';
+        response.cbenef_sugerido = sugerido || '-';
+        response.message = sugerido
+          ? `cBenef não existe na tabela oficial. Sugestão para CST ${cst}: ${sugerido}`
+          : 'cBenef não existe na tabela oficial.';
         return response;
       }
 
@@ -299,11 +316,16 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
       response.legislation = match.legislation || '-';
 
       if (cstAllowed) {
+        response.cbenef_sugerido = '-';
         response.status = 'OK';
         response.message = 'Válido para este CST';
       } else {
+        const sugerido = suggestCbenef(cst);
+        response.cbenef_sugerido = sugerido || '-';
         response.status = 'ERRO';
-        response.message = `CST ${cst} NÃO permitido (permitidos: ${match.applicableCST.join(', ') || 'nenhum listado'})`;
+        response.message = sugerido
+          ? `CST ${cst} NÃO permitido para este cBenef. Sugestão: ${sugerido}`
+          : `CST ${cst} NÃO permitido (permitidos: ${match.applicableCST.join(', ') || 'nenhum listado'})`;
       }
 
       return response;
