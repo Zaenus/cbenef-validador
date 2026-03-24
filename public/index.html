@@ -136,7 +136,7 @@
     <code>Código</code>, <code>Descrição</code>, <code>Tribut.</code>, <code>Cód. NCM</code><br>
     <small>A coluna <strong>Tribut.</strong> deve conter o código CST (ex.: <em>40</em>) ou texto descritivo (ex.: <em>Isento</em>).
     Colunas opcionais <code>CFOP</code> e <code>CST</code> são reconhecidas quando presentes.
-    Quando há mais de um cBenef possível para o CST, o mapeamento NCM configurado na seção 5 é usado para refinar a sugestão.</small>
+    Quando há mais de um cBenef possível para o CST, o mapeamento NCM configurado na seção 5 é usado para identificar o código correto; se não houver mapeamento, o sistema recomenda o primeiro código aplicável.</small>
   </p>
 
   <form id="assignCbenefForm" enctype="multipart/form-data">
@@ -152,7 +152,7 @@
 
   <h2>5. Mapeamento NCM → cBenef</h2>
   <p>
-    Quando há múltiplas opções de cBenef para um mesmo CST, o sistema usa este mapeamento para identificar
+    Quando há múltiplos cBenef disponíveis para um mesmo CST, o sistema usa este mapeamento para identificar
     o código correto a partir do NCM (e opcionalmente CFOP/CST) do produto.<br>
     Envie uma planilha (.xlsx ou .csv) com as colunas:
   </p>

@@ -130,7 +130,7 @@ if (bulkForm) {
               <th style="padding:8px; border:1px solid #dee2e6;">CFOP</th>
               <th style="padding:8px; border:1px solid #dee2e6;">CST</th>
               <th style="padding:8px; border:1px solid #dee2e6;">cBenef</th>
-              <th style="padding:8px; border:1px solid #dee2e6;">cBenef Sugerido</th>
+              <th style="padding:8px; border:1px solid #dee2e6;">cBenef Recomendado</th>
               <th style="padding:8px; border:1px solid #dee2e6;">Status</th>
               <th style="padding:8px; border:1px solid #dee2e6;">Mensagem</th>
             </tr>
@@ -273,8 +273,7 @@ if (assignCbenefForm) {
               <th>GTIN</th>
               <th>CFOP</th>
               <th>CST</th>
-              <th>cBenef Sugerido</th>
-              <th>Opções Disponíveis</th>
+              <th>cBenef Recomendado</th>
               <th>Status</th>
               <th>Mensagem</th>
             </tr>
@@ -288,10 +287,6 @@ if (assignCbenefForm) {
           r.status === 'ERRO'  ? 'status-erro' :
           r.status === 'AVISO' ? 'status-aviso' : '';
 
-        const opcoesHtml = r.opcoes && r.opcoes.length > 1
-          ? `<span title="${r.opcoes.join(', ')}">${r.opcoes.slice(0, 3).join(', ')}${r.opcoes.length > 3 ? ` (+${r.opcoes.length - 3})` : ''}</span>`
-          : (r.opcoes && r.opcoes.length === 1 ? r.opcoes[0] : '-');
-
         html += `
           <tr>
             <td>${r.row}</td>
@@ -303,7 +298,6 @@ if (assignCbenefForm) {
             <td>${r.cfop}</td>
             <td>${r.cst}</td>
             <td><strong>${r.cbenef_sugerido}</strong></td>
-            <td style="font-size:0.85em;">${opcoesHtml}</td>
             <td class="${statusClass}">${r.status}</td>
             <td>${r.message}</td>
           </tr>
