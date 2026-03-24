@@ -212,7 +212,9 @@ if (assignCbenefForm) {
               <th>Linha</th>
               <th>Código</th>
               <th>Descrição</th>
-              <th>Cód. NCM</th>
+              <th>NCM</th>
+              <th>CEST</th>
+              <th>GTIN</th>
               <th>CFOP</th>
               <th>CST</th>
               <th>cBenef Sugerido</th>
@@ -240,6 +242,8 @@ if (assignCbenefForm) {
             <td>${r.codigo}</td>
             <td>${r.descricao}</td>
             <td>${r.ncm}</td>
+            <td>${r.cest}</td>
+            <td>${r.gtin}</td>
             <td>${r.cfop}</td>
             <td>${r.cst}</td>
             <td><strong>${r.cbenef_sugerido}</strong></td>
