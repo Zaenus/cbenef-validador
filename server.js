@@ -332,7 +332,7 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
 // ────────────────────────────────────────────────
 
 const HEADER_KEYWORDS = [
-  'codigo', 'descri', 'tribut', 'ncm', 'cst', 'cfop', 'produto', 'sku', 'benef'
+  'codigo', 'descri', 'tribut', 'ncm', 'cst', 'cfop', 'produto', 'sku', 'benef', 'cest', 'gtin'
 ];
 const MAX_SCAN_ROWS = 25;
 
@@ -505,6 +505,8 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
       const descricao = getField(row, ['Descrição', 'Descricao', 'descricao', 'Produto', 'nome_produto', 'Descricao do Produto']);
       const tribut   = getField(row, ['Tribut.', 'Tribut', 'Tributação', 'Tributacao', 'tributacao', 'CST', 'cst', 'tributacao_icms']);
       const ncm      = getField(row, ['Cód. NCM', 'Cod. NCM', 'Código NCM', 'Codigo NCM', 'NCM', 'ncm', 'codigo_ncm']);
+      const cest     = getField(row, ['CEST', 'cest']);
+      const gtin     = getField(row, ['GTIN', 'gtin', 'EAN', 'ean', 'codigo_barras']);
 
       // Allow explicit separate CFOP / CST columns; fall back to parsing Tribut.
       const cfopExplicit = getField(row, ['CFOP', 'cfop']);
@@ -527,7 +529,7 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
 
       if (!cst) {
         status = 'AVISO';
-        message = 'CST não identificado na coluna "Tribut."';
+        message = 'CST não identificado';
       } else if (applicableEntries.length === 0) {
         status = 'INFO';
         message = `CST ${cst} não requer cBenef`;
@@ -547,6 +549,8 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
         codigo: codigo || '(sem código)',
         descricao: descricao || '(sem descrição)',
         ncm: ncm || '-',
+        cest: cest || '-',
+        gtin: gtin || '-',
         cfop: cfop || '-',
         cst: cst || '-',
         cbenef_sugerido: cbenefSugerido,
