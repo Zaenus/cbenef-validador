@@ -231,33 +231,9 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
     }
 
     const filePath = req.file.path;
-    let products = [];
+    const originalName = req.file.originalname || '';
 
-    // Support both .xlsx and .csv
-    if (filePath.toLowerCase().endsWith('.csv')) {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const lines = content.split(/\r?\n/);
-      if (lines.length < 2) throw new Error('CSV vazio ou sem cabeçalho');
-
-      const headers = lines[0].split(/[,;]/).map(h => h.trim().toLowerCase().replace(/"/g, ''));
-      const separator = lines[0].includes(';') ? ';' : ',';
-
-      products = lines.slice(1)
-        .filter(line => line.trim())
-        .map(line => {
-          const values = line.split(separator).map(v => v.trim().replace(/^"|"$/g, ''));
-          const obj = {};
-          headers.forEach((h, i) => { obj[h] = values[i] || ''; });
-          return obj;
-        });
-    } else {
-      // XLSX
-      const workbook = XLSX.readFile(filePath);
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      products = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
-    }
-
+    const products = parseUploadedFile(filePath, originalName);
     fs.unlinkSync(filePath);
 
     if (products.length === 0) {
@@ -267,22 +243,24 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
     const results = products.map((prod, idx) => {
       const rowNum = idx + 2; // considering header
 
-      // Normalize fields (case insensitive keys)
+      // Normalize fields (case-insensitive + accent-insensitive key lookup)
       const get = (keys) => {
+        const prodKeys = Object.keys(prod);
         for (const k of keys) {
           if (prod[k] !== undefined) return String(prod[k] || '').trim();
-          const lower = Object.keys(prod).find(kl => kl.toLowerCase() === k.toLowerCase());
-          if (lower) return String(prod[lower] || '').trim();
+          const normK = normalizeForDetection(k);
+          const found = prodKeys.find(pk => normalizeForDetection(pk) === normK);
+          if (found !== undefined) return String(prod[found] || '').trim();
         }
         return '';
       };
 
-      const codigo   = get(['codigo_produto', 'sku', 'codigo', 'id']);
-      const nome     = get(['nome_produto', 'descricao', 'produto', 'nome']);
-      const ncm      = get(['ncm']);
-      const cfop     = get(['cfop']);
-      let   cst      = get(['cst', 'csosn']).replace(/\D/g, '').padStart(2, '0');
-      let   cbenef   = get(['cbenef', 'c_benef', 'codigo_beneficio']).toUpperCase();
+      const codigo  = get(['Código', 'Codigo', 'codigo', 'codigo_produto', 'SKU', 'sku', 'ID', 'id']);
+      const nome    = get(['Descrição', 'Descricao', 'descricao', 'nome_produto', 'Produto', 'produto', 'nome']);
+      const ncm     = get(['Cód. NCM', 'Cod. NCM', 'Código NCM', 'NCM', 'ncm', 'codigo_ncm']);
+      const cfop    = get(['CFOP', 'cfop']);
+      let   cst     = get(['CST', 'cst', 'CSOSN', 'csosn']).replace(/\D/g, '').padStart(2, '0');
+      let   cbenef  = get(['cbenef', 'c_benef', 'codigo_beneficio', 'cBenef']).toUpperCase();
 
       const response = {
         row: rowNum,
@@ -345,6 +323,87 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
 });
 
 // ────────────────────────────────────────────────
+// Helper: parse rows from XLSX or CSV, auto-detecting the real header row.
+// ERP reports often have multiple intro rows (company name, title, group
+// filter, etc.) before the actual column-header row.  We scan the first
+// MAX_SCAN_ROWS rows and pick the first one that contains ≥2 known
+// column-name keywords as the real header row; everything before it is
+// treated as metadata and skipped.
+// ────────────────────────────────────────────────
+
+const HEADER_KEYWORDS = [
+  'codigo', 'descri', 'tribut', 'ncm', 'cst', 'cfop', 'produto', 'sku', 'benef'
+];
+const MAX_SCAN_ROWS = 25;
+
+function normalizeForDetection(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Given an array of raw rows (each row is an array of cell values),
+ * returns the index of the first row that looks like column headers.
+ * Falls back to 0 if nothing is found.
+ */
+function findHeaderRowIndex(rawRows) {
+  for (let i = 0; i < Math.min(rawRows.length, MAX_SCAN_ROWS); i++) {
+    const row = rawRows[i];
+    const normCells = row.map(normalizeForDetection);
+    const hits = HEADER_KEYWORDS.filter(kw => normCells.some(c => c.includes(kw)));
+    if (hits.length >= 2) return i;
+  }
+  return 0;
+}
+
+/**
+ * Convert an array of raw rows into an array of objects using the
+ * detected header row.  Blank/null rows after the header are dropped.
+ */
+function rawRowsToObjects(rawRows) {
+  const headerIdx = findHeaderRowIndex(rawRows);
+  const headers = rawRows[headerIdx].map(h => String(h || '').trim());
+  return rawRows
+    .slice(headerIdx + 1)
+    .filter(row => row.some(cell => cell !== '' && cell !== null))
+    .map(row => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; });
+      return obj;
+    });
+}
+
+/**
+ * Parse an uploaded file (XLSX or CSV) into an array of row objects,
+ * handling multi-row ERP report headers automatically.
+ */
+function parseUploadedFile(filePath, originalName) {
+  if ((originalName || '').toLowerCase().endsWith('.csv')) {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) throw new Error('CSV vazio ou sem cabeçalho');
+    const sep = lines[0].includes(';') ? ';' : ',';
+    const rawRows = lines.map(line =>
+      line.split(sep).map(v => v.trim().replace(/^"|"$/g, ''))
+    );
+    return rawRowsToObjects(rawRows);
+  }
+
+  // XLSX / XLS
+  const workbook = XLSX.readFile(filePath);
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  const rawRows = XLSX.utils.sheet_to_json(worksheet, {
+    header: 1,
+    defval: '',
+    blankrows: false
+  });
+  return rawRowsToObjects(rawRows);
+}
+
+// ────────────────────────────────────────────────
 // Helpers for parsing CST and CFOP from "Tribut." column
 // ────────────────────────────────────────────────
 
@@ -395,28 +454,9 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
     }
 
     const filePath = req.file.path;
-    let rows = [];
+    const originalName = req.file.originalname || '';
 
-    const originalName = (req.file.originalname || '').toLowerCase();
-
-    if (originalName.endsWith('.csv')) {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const lines = content.split(/\r?\n/).filter(l => l.trim());
-      if (lines.length < 2) throw new Error('CSV vazio ou sem cabeçalho');
-      const sep = lines[0].includes(';') ? ';' : ',';
-      const headers = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g, ''));
-      rows = lines.slice(1).map(line => {
-        const values = line.split(sep).map(v => v.trim().replace(/^"|"$/g, ''));
-        const obj = {};
-        headers.forEach((h, i) => { obj[h] = values[i] || ''; });
-        return obj;
-      });
-    } else {
-      const workbook = XLSX.readFile(filePath);
-      const sheetName = workbook.SheetNames[0];
-      rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
-    }
-
+    const rows = parseUploadedFile(filePath, originalName);
     fs.unlinkSync(filePath);
 
     if (rows.length === 0) {
