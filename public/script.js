@@ -84,8 +84,6 @@ if (uploadForm) {
   });
 }
 
-}
-
 // === 3. Bulk Validation of Company Products ===
 const bulkForm = document.getElementById('bulkProductsForm');
 if (bulkForm) {
