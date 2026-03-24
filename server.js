@@ -11,7 +11,11 @@ const app = express();
 const PORT = 3000;
 
 app.use(cors());
-app.use(bodyParser.json());
+// Apply a large body-parser limit for the export endpoint before the global limiter.
+// body-parser skips re-parsing if the request body was already read, so this
+// takes precedence over the global middleware below for that path.
+app.use('/api/export-assign-cbenef', bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.json({ limit: '1mb' }));
 app.use(express.static('public'));
 
 // Rate limiter for file-upload endpoints (max 30 requests per 15 minutes per IP)
@@ -793,7 +797,7 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
 });
 
 // POST /api/export-assign-cbenef - Export assign-cBenef results to Excel
-app.post('/api/export-assign-cbenef', bodyParser.json({ limit: '50mb' }), (req, res) => {
+app.post('/api/export-assign-cbenef', (req, res) => {
   const { results } = req.body;
 
   if (!Array.isArray(results) || results.length === 0) {
