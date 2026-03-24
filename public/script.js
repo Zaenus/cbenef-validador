@@ -130,6 +130,7 @@ if (bulkForm) {
               <th style="padding:8px; border:1px solid #dee2e6;">CFOP</th>
               <th style="padding:8px; border:1px solid #dee2e6;">CST</th>
               <th style="padding:8px; border:1px solid #dee2e6;">cBenef</th>
+              <th style="padding:8px; border:1px solid #dee2e6;">cBenef Sugerido</th>
               <th style="padding:8px; border:1px solid #dee2e6;">Status</th>
               <th style="padding:8px; border:1px solid #dee2e6;">Mensagem</th>
             </tr>
@@ -143,6 +144,10 @@ if (bulkForm) {
         if (r.status === 'ERRO')  statusColor = '#dc3545';
         if (r.status === 'AVISO') statusColor = '#fd7e14';
 
+        const sugerido = r.cbenef_sugerido && r.cbenef_sugerido !== '-'
+          ? `<strong style="color:#0066cc;">${r.cbenef_sugerido}</strong>`
+          : '-';
+
         html += `
           <tr>
             <td style="padding:8px; border:1px solid #dee2e6;">${r.row}</td>
@@ -152,6 +157,7 @@ if (bulkForm) {
             <td style="padding:8px; border:1px solid #dee2e6;">${r.cfop}</td>
             <td style="padding:8px; border:1px solid #dee2e6;">${r.cst}</td>
             <td style="padding:8px; border:1px solid #dee2e6;">${r.cbenef}</td>
+            <td style="padding:8px; border:1px solid #dee2e6;">${sugerido}</td>
             <td style="padding:8px; border:1px solid #dee2e6; color:${statusColor}; font-weight:bold;">${r.status}</td>
             <td style="padding:8px; border:1px solid #dee2e6;">${r.message}</td>
           </tr>
