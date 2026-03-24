@@ -59,6 +59,59 @@ function loadTable() {
 
 loadTable(); // initial load
 
+// ────────────────────────────────────────────────
+// NCM → cBenef mapping (optional, user-supplied)
+// Each entry: { ncm, cbenef, cst?, cfop?, description? }
+// ncm may be 2-8 digits (prefix match) or an exact 8-digit code.
+// ────────────────────────────────────────────────
+let ncmCbenefMapping = [];
+
+function loadNcmMapping() {
+  const filePath = path.join(__dirname, 'data/ncm-cbenef-mapping.json');
+  if (!fs.existsSync(filePath)) {
+    ncmCbenefMapping = [];
+    return;
+  }
+  try {
+    const content = fs.readFileSync(filePath, 'utf8').trim();
+    ncmCbenefMapping = content ? JSON.parse(content) : [];
+    console.log(`✅ Loaded ${ncmCbenefMapping.length} NCM-cBenef mapping entries`);
+  } catch (err) {
+    console.error('❌ Failed to parse data/ncm-cbenef-mapping.json:', err.message);
+    ncmCbenefMapping = [];
+  }
+}
+loadNcmMapping();
+
+/**
+ * Look up the most specific NCM-cBenef mapping for a given product.
+ * Returns the matching entry (with the longest NCM prefix) or null.
+ * Filters are applied in order: NCM prefix → optional CST → optional CFOP.
+ */
+function findNcmMapping(ncm, cfop, cst) {
+  if (!ncm || !ncmCbenefMapping.length) return null;
+  const cleanNcm = String(ncm).replace(/\D/g, '');
+  if (!cleanNcm) return null;
+
+  const candidates = ncmCbenefMapping.filter(m => {
+    const mNcm = String(m.ncm || '').replace(/\D/g, '');
+    if (!mNcm) return false;
+    // Accept exact match or prefix (mapping NCM is a prefix of the product NCM)
+    if (!cleanNcm.startsWith(mNcm)) return false;
+    // Optional CST filter
+    if (m.cst && String(m.cst).padStart(2, '0') !== String(cst || '').padStart(2, '0')) return false;
+    // Optional CFOP filter
+    if (m.cfop && String(m.cfop) !== String(cfop || '')) return false;
+    return true;
+  });
+
+  if (candidates.length === 0) return null;
+  // Prefer the most specific (longest) NCM prefix
+  return candidates.sort((a, b) =>
+    String(b.ncm).replace(/\D/g, '').length - String(a.ncm).replace(/\D/g, '').length
+  )[0];
+}
+
 // Validate endpoint (same as before)
 app.post('/api/validate', (req, res) => {
   const { uf, cbenef, cst } = req.body;
@@ -222,6 +275,101 @@ app.post('/api/upload-table', uploadLimiter, upload.single('table'), (req, res) 
 });
 
 // ────────────────────────────────────────────────
+// Upload NCM → cBenef mapping
+// Accepts a CSV or XLSX file with columns: ncm, cbenef
+// Optional columns: cst, cfop, description
+// ────────────────────────────────────────────────
+app.post('/api/upload-ncm-mapping', uploadLimiter, upload.single('mapping'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    }
+
+    const filePath = req.file.path;
+    const originalName = req.file.originalname || '';
+    const rows = parseUploadedFile(filePath, originalName);
+    fs.unlinkSync(filePath);
+
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'Nenhum dado encontrado no arquivo.' });
+    }
+
+    const normalizeKey = k => String(k || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '');
+
+    const getField = (obj, candidates) => {
+      const objKeys = Object.keys(obj);
+      for (const candidate of candidates) {
+        if (obj[candidate] !== undefined) return String(obj[candidate] != null ? obj[candidate] : '').trim();
+        const normCand = normalizeKey(candidate);
+        const found = objKeys.find(k => normalizeKey(k) === normCand);
+        if (found !== undefined) return String(obj[found] != null ? obj[found] : '').trim();
+      }
+      return '';
+    };
+
+    const parsed = [];
+    const errors = [];
+
+    rows.forEach((row, idx) => {
+      const ncm    = getField(row, ['ncm', 'codigo_ncm', 'cod_ncm', 'Cód. NCM', 'Cod. NCM']);
+      const cbenef = getField(row, ['cbenef', 'c_benef', 'codigo_beneficio', 'cBenef']).toUpperCase();
+      const cst    = getField(row, ['cst', 'CST', 'csosn']);
+      const cfop   = getField(row, ['cfop', 'CFOP']);
+      const desc   = getField(row, ['description', 'descricao', 'obs', 'observacao', 'nota']);
+
+      if (!ncm || !cbenef) {
+        errors.push(`Linha ${idx + 2}: NCM e cBenef são obrigatórios`);
+        return;
+      }
+
+      const cleanNcm = ncm.replace(/\D/g, '');
+      if (!cleanNcm || cleanNcm.length < 2 || cleanNcm.length > 8) {
+        errors.push(`Linha ${idx + 2}: NCM inválido "${ncm}" (deve ter 2-8 dígitos)`);
+        return;
+      }
+
+      if (cbenef !== 'SEM CBENEF' && !/^[A-Z]{2}\d{6}$/.test(cbenef)) {
+        errors.push(`Linha ${idx + 2}: cBenef inválido "${cbenef}" (formato esperado: UF + 6 dígitos)`);
+        return;
+      }
+
+      const entry = { ncm: cleanNcm, cbenef };
+      if (cst) entry.cst = String(cst).replace(/\D/g, '').padStart(2, '0');
+      if (cfop) entry.cfop = String(cfop).replace(/\D/g, '');
+      if (desc) entry.description = desc;
+
+      parsed.push(entry);
+    });
+
+    if (parsed.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Nenhuma entrada válida encontrada.',
+        details: errors
+      });
+    }
+
+    const jsonPath = path.join(__dirname, 'data/ncm-cbenef-mapping.json');
+    fs.writeFileSync(jsonPath, JSON.stringify(parsed, null, 2), 'utf8');
+    loadNcmMapping();
+
+    res.json({
+      success: true,
+      message: `Mapeamento NCM atualizado com ${parsed.length} entrada(s).`,
+      count: parsed.length,
+      ...(errors.length > 0 && { warnings: errors })
+    });
+
+  } catch (err) {
+    console.error(err);
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.status(500).json({ error: 'Erro ao processar o arquivo: ' + err.message });
+  }
+});
+
+// ────────────────────────────────────────────────
 // Bulk validation of your internal products
 // ────────────────────────────────────────────────
 app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products'), (req, res) => {
@@ -284,6 +432,8 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
         : [];
 
       // Helper: find the best cBenef suggestion for a given CST.
+      // When NCM and CFOP are available they are used to narrow down from multiple CST matches
+      // via the user-supplied NCM-cBenef mapping before falling back to CST-only logic.
       // Returns the single specific entry when there is exactly one, 'SEM CBENEF' when only
       // generic options exist, or null when multiple specific options are available and a
       // product-level review is required to pick the right one.
@@ -294,7 +444,14 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
         const specificEntries = entries.filter(e => !GENERIC_CBENEF_CODES.includes(e.code));
         if (specificEntries.length === 1) return specificEntries[0].code;
         if (specificEntries.length === 0) return 'SEM CBENEF';
-        // Multiple specific options — cannot auto-determine without further product info
+        // Multiple specific options — try to refine using NCM + CFOP mapping
+        if (ncm && ncm !== '-') {
+          const ncmEntry = findNcmMapping(ncm, cfop !== '-' ? cfop : '', cstCode);
+          if (ncmEntry) {
+            const confirmed = specificEntries.find(e => e.code === ncmEntry.cbenef);
+            if (confirmed) return confirmed.code;
+          }
+        }
         return null;
       };
 
@@ -599,10 +756,21 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
         status = 'OK';
         message = `cBenef identificado para CST ${cst}: ${cbenefSugerido}`;
       } else {
-        // Multiple specific options — cannot auto-determine without further product info (e.g. NCM)
-        cbenefSugerido = '-';
-        status = 'AVISO';
-        message = `${applicableEntries.length} opções disponíveis para CST ${cst} — verificar qual se aplica ao produto`;
+        // Multiple specific options — try to narrow down using NCM + CFOP mapping
+        const ncmEntry = ncm ? findNcmMapping(ncm, cfop || '', cst) : null;
+        const confirmedEntry = ncmEntry
+          ? specificEntries.find(e => e.code === ncmEntry.cbenef)
+          : null;
+
+        if (confirmedEntry) {
+          cbenefSugerido = confirmedEntry.code;
+          status = 'OK';
+          message = `cBenef identificado por NCM ${ncm} / CST ${cst}: ${cbenefSugerido}`;
+        } else {
+          cbenefSugerido = '-';
+          status = 'AVISO';
+          message = `${applicableEntries.length} opções disponíveis para CST ${cst} — verificar qual se aplica ao produto`;
+        }
       }
 
       return {

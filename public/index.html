@@ -135,7 +135,8 @@
     Envie uma planilha (.xlsx ou .csv) com os produtos da empresa. O arquivo deve conter as colunas:<br>
     <code>Código</code>, <code>Descrição</code>, <code>Tribut.</code>, <code>Cód. NCM</code><br>
     <small>A coluna <strong>Tribut.</strong> deve conter o código CST (ex.: <em>40</em>) ou texto descritivo (ex.: <em>Isento</em>).
-    Colunas opcionais <code>CFOP</code> e <code>CST</code> são reconhecidas quando presentes.</small>
+    Colunas opcionais <code>CFOP</code> e <code>CST</code> são reconhecidas quando presentes.
+    Quando há mais de um cBenef possível para o CST, o mapeamento NCM configurado na seção 5 é usado para refinar a sugestão.</small>
   </p>
 
   <form id="assignCbenefForm" enctype="multipart/form-data">
@@ -145,6 +146,31 @@
   </form>
 
   <div id="assignCbenefResult" class="result-box" style="max-height: 600px; overflow-y: auto;"></div>
+
+  <!-- 5. Mapeamento NCM → cBenef -->
+  <hr>
+
+  <h2>5. Mapeamento NCM → cBenef</h2>
+  <p>
+    Quando há múltiplas opções de cBenef para um mesmo CST, o sistema usa este mapeamento para identificar
+    o código correto a partir do NCM (e opcionalmente CFOP/CST) do produto.<br>
+    Envie uma planilha (.xlsx ou .csv) com as colunas:
+  </p>
+  <ul>
+    <li><code>ncm</code> — código NCM (2 a 8 dígitos; prefixos são aceitos)</li>
+    <li><code>cbenef</code> — código cBenef correspondente</li>
+    <li><code>cst</code> <em>(opcional)</em> — restringe o mapeamento a um CST específico</li>
+    <li><code>cfop</code> <em>(opcional)</em> — restringe o mapeamento a um CFOP específico</li>
+    <li><code>description</code> <em>(opcional)</em> — observação livre</li>
+  </ul>
+
+  <form id="ncmMappingForm" enctype="multipart/form-data">
+    <label for="ncmMappingFile">Arquivo (.xlsx ou .csv):</label>
+    <input type="file" id="ncmMappingFile" accept=".xlsx,.csv" required>
+    <button type="submit">Enviar Mapeamento</button>
+  </form>
+
+  <div id="ncmMappingResult" class="result-box"></div>
 
   <!-- JavaScript -->
   <script src="script.js"></script>
