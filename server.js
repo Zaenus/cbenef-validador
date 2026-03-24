@@ -247,10 +247,10 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
       const get = (keys) => {
         const prodKeys = Object.keys(prod);
         for (const k of keys) {
-          if (prod[k] !== undefined) return String(prod[k] || '').trim();
+          if (prod[k] !== undefined) return String(prod[k] != null ? prod[k] : '').trim();
           const normK = normalizeForDetection(k);
           const found = prodKeys.find(pk => normalizeForDetection(pk) === normK);
-          if (found !== undefined) return String(prod[found] || '').trim();
+          if (found !== undefined) return String(prod[found] != null ? prod[found] : '').trim();
         }
         return '';
       };
@@ -410,12 +410,29 @@ function parseUploadedFile(filePath, originalName) {
 const VALID_CSTS = ['00', '10', '20', '30', '40', '41', '50', '51', '60', '70', '90'];
 
 function parseCSTFromTribut(tributStr) {
-  if (!tributStr) return '';
+  if (tributStr === '' || tributStr === null || tributStr === undefined) return '';
   const s = String(tributStr).trim();
+  if (!s) return '';
 
   // Direct exact match (e.g. "40", "41", "0" → "00")
   const direct = s.padStart(2, '0');
   if (VALID_CSTS.includes(direct)) return direct;
+
+  // 3-digit CST code (origin digit + 2-digit situation, e.g. "360" → "60", "300" → "00")
+  // Handles full 3-digit codes: the first digit is the merchandise origin (0–8) and the
+  // last two digits are the situation code.  Origin-0 codes (e.g. "060") already reach
+  // this function as "60" because Excel drops the leading zero when storing as a number.
+  if (/^\d{3}$/.test(s)) {
+    const situation = s.slice(1);
+    if (VALID_CSTS.includes(situation)) return situation;
+  }
+
+  // Single-digit shorthand: treat as the tens digit of a 2-digit situation code
+  // (e.g. "3" → "30", "7" → "70", "0" → "00")
+  if (/^\d$/.test(s)) {
+    const candidate = s + '0';
+    if (VALID_CSTS.includes(candidate)) return candidate;
+  }
 
   // 2-digit number embedded in the string (e.g. "CST: 40", "5102/40")
   const numMatches = s.match(/\b(\d{1,2})\b/g) || [];
@@ -472,11 +489,11 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
       const objKeys = Object.keys(obj);
       for (const candidate of candidates) {
         // Exact key
-        if (obj[candidate] !== undefined) return String(obj[candidate] || '').trim();
+        if (obj[candidate] !== undefined) return String(obj[candidate] != null ? obj[candidate] : '').trim();
         // Case-insensitive / accent-insensitive key
         const normCand = normalizeKey(candidate);
         const found = objKeys.find(k => normalizeKey(k) === normCand);
-        if (found !== undefined) return String(obj[found] || '').trim();
+        if (found !== undefined) return String(obj[found] != null ? obj[found] : '').trim();
       }
       return '';
     };
