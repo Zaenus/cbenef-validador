@@ -793,7 +793,7 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
 });
 
 // POST /api/export-assign-cbenef - Export assign-cBenef results to Excel
-app.post('/api/export-assign-cbenef', (req, res) => {
+app.post('/api/export-assign-cbenef', bodyParser.json({ limit: '50mb' }), (req, res) => {
   const { results } = req.body;
 
   if (!Array.isArray(results) || results.length === 0) {
