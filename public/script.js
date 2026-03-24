@@ -176,7 +176,57 @@ if (bulkForm) {
   });
 }
 
-// === 4. Assign cBenef to Products ===
+// === 5. NCM → cBenef Mapping Upload ===
+const ncmMappingForm = document.getElementById('ncmMappingForm');
+if (ncmMappingForm) {
+  ncmMappingForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const fileInput = document.getElementById('ncmMappingFile');
+    if (!fileInput.files?.[0]) return;
+
+    const formData = new FormData();
+    formData.append('mapping', fileInput.files[0]);
+
+    const resultDiv = document.getElementById('ncmMappingResult');
+    resultDiv.innerHTML = '<p style="color:#666;">Processando mapeamento NCM...</p>';
+
+    try {
+      const res = await fetch('/api/upload-ncm-mapping', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        resultDiv.style.borderColor = '#28a745';
+        resultDiv.style.backgroundColor = '#e8f5e9';
+        let html = `<strong style="color:#28a745">✅ Sucesso!</strong><br>${data.message}`;
+        if (data.warnings && data.warnings.length > 0) {
+          html += `<br><br><strong>Avisos (${data.warnings.length}):</strong><ul style="margin:4px 0; padding-left:20px;">`;
+          data.warnings.forEach(w => { html += `<li style="font-size:0.9em;">${w}</li>`; });
+          html += '</ul>';
+        }
+        resultDiv.innerHTML = html;
+      } else {
+        resultDiv.style.borderColor = '#dc3545';
+        resultDiv.style.backgroundColor = '#ffebee';
+        let html = `<strong style="color:#dc3545">Erro:</strong> ${data.error || data.message || 'Falha desconhecida'}`;
+        if (data.details && data.details.length > 0) {
+          html += `<ul style="margin:4px 0; padding-left:20px;">`;
+          data.details.forEach(d => { html += `<li style="font-size:0.9em;">${d}</li>`; });
+          html += '</ul>';
+        }
+        resultDiv.innerHTML = html;
+      }
+    } catch (err) {
+      console.error('Erro no upload do mapeamento NCM:', err);
+      resultDiv.innerHTML = `<strong style="color:#dc3545">Erro de conexão: ${err.message}</strong>`;
+    }
+  });
+}
+
 const assignCbenefForm = document.getElementById('assignCbenefForm');
 if (assignCbenefForm) {
   assignCbenefForm.addEventListener('submit', async (e) => {

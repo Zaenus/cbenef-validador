@@ -9,7 +9,8 @@ Ferramenta web para validação e sugestão de códigos **cBenef** (Código de B
 - **Validação de código único** — verifica se um cBenef é válido para um determinado CST
 - **Atualização da tabela oficial** — importa a tabela oficial de cBenef a partir de um arquivo `.xlsx` da SEFAZ
 - **Validação em massa de produtos** — valida uma lista de produtos (`.xlsx` ou `.csv`) contra os cBenef cadastrados
-- **Sugestão automática de cBenef** — sugere códigos aplicáveis a partir do CST/CFOP de cada produto
+- **Sugestão automática de cBenef** — sugere códigos aplicáveis com base no CST, NCM e CFOP de cada produto
+- **Mapeamento NCM → cBenef** — permite configurar mapeamentos NCM/CFOP/CST para refinar sugestões quando há múltiplos cBenef possíveis para um mesmo CST
 
 ---
 
@@ -61,7 +62,8 @@ A interface é dividida em quatro abas:
 | **1 – Validar Código** | Valida um cBenef informado manualmente (UF + código + CST) |
 | **2 – Atualizar Tabela** | Importa a tabela oficial via upload de arquivo `.xlsx` |
 | **3 – Validar Produtos** | Valida uma lista de produtos em massa (`.xlsx` ou `.csv`) |
-| **4 – Sugerir cBenef** | Sugere códigos cBenef para uma lista de produtos |
+| **4 – Sugerir cBenef** | Sugere códigos cBenef para uma lista de produtos usando CST, NCM e CFOP |
+| **5 – Mapeamento NCM** | Configura o mapeamento NCM → cBenef para refinar sugestões automáticas |
 
 ---
 
@@ -128,7 +130,7 @@ Valida em massa uma lista de produtos contra a tabela oficial.
 
 ### `POST /api/assign-cbenef`
 
-Sugere códigos cBenef para cada produto com base no CST.
+Sugere códigos cBenef para cada produto com base no CST, NCM e CFOP.
 
 **Corpo (multipart/form-data):**
 - `products` — arquivo `.xlsx` ou `.csv` com as colunas:
@@ -151,16 +153,40 @@ Sugere códigos cBenef para cada produto com base no CST.
 
 ---
 
+### `POST /api/upload-ncm-mapping`
+
+Atualiza o mapeamento NCM → cBenef usado para refinar sugestões quando há múltiplos códigos possíveis para um dado CST.
+
+**Corpo (multipart/form-data):**
+- `mapping` — arquivo `.xlsx` ou `.csv` com as colunas:
+  - `ncm` *(obrigatório)* — código NCM de 2 a 8 dígitos (prefixos são aceitos)
+  - `cbenef` *(obrigatório)* — código cBenef correspondente
+  - `cst` *(opcional)* — restringe a um CST específico
+  - `cfop` *(opcional)* — restringe a um CFOP específico
+  - `description` *(opcional)* — observação livre
+
+**Resposta:**
+```json
+{
+  "success": true,
+  "message": "Mapeamento NCM atualizado com 5 entrada(s).",
+  "count": 5
+}
+```
+
+---
+
 ## Estrutura do Projeto
 
 ```
 cbenef-validador/
 ├── data/
-│   └── official-cbenef.json   # Tabela oficial de cBenef (SP)
+│   ├── official-cbenef.json       # Tabela oficial de cBenef (SP)
+│   └── ncm-cbenef-mapping.json    # Mapeamento NCM → cBenef (configurável)
 ├── public/
-│   ├── index.html             # Interface web
-│   └── script.js              # Lógica do cliente
-├── server.js                  # Servidor Express e endpoints da API
+│   ├── index.html                 # Interface web
+│   └── script.js                  # Lógica do cliente
+├── server.js                      # Servidor Express e endpoints da API
 ├── package.json
 └── README.md
 ```
