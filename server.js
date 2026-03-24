@@ -275,13 +275,27 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
         description: ''
       };
 
-      // Helper: find the best cBenef suggestion for a given CST
+      // Generic catch-all codes that should not be auto-suggested when specific benefit entries exist
+      const GENERIC_CBENEF_CODES = ['SEM CBENEF', 'SP099090'];
+
+      // Pre-compute applicable entries for this CST once, reused by suggestCbenef and message formatting
+      const cstEntries = cst && cst !== '-'
+        ? officialTable.filter(item => item.applicableCST.includes(cst))
+        : [];
+
+      // Helper: find the best cBenef suggestion for a given CST.
+      // Returns the single specific entry when there is exactly one, 'SEM CBENEF' when only
+      // generic options exist, or null when multiple specific options are available and a
+      // product-level review is required to pick the right one.
       const suggestCbenef = (cstCode) => {
         if (!cstCode || cstCode === '-') return null;
-        const entries = officialTable.filter(item => item.applicableCST.includes(cstCode));
+        const entries = cstCode === cst ? cstEntries : officialTable.filter(item => item.applicableCST.includes(cstCode));
         if (entries.length === 0) return null;
-        const semCbenef = entries.find(e => e.code === 'SEM CBENEF');
-        return semCbenef ? semCbenef.code : entries[0].code;
+        const specificEntries = entries.filter(e => !GENERIC_CBENEF_CODES.includes(e.code));
+        if (specificEntries.length === 1) return specificEntries[0].code;
+        if (specificEntries.length === 0) return 'SEM CBENEF';
+        // Multiple specific options — cannot auto-determine without further product info
+        return null;
       };
 
       if (!cbenef || cbenef === '-') {
@@ -290,7 +304,7 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
         response.cbenef_sugerido = sugerido || '-';
         response.message = sugerido
           ? `cBenef não informado. Sugestão para CST ${cst}: ${sugerido}`
-          : 'cBenef não informado. Verifique se o CST exige preenchimento.';
+          : `cBenef não informado. ${cstEntries.length} opções disponíveis para CST ${cst} — verificar qual se aplica ao produto.`;
         return response;
       }
 
@@ -305,7 +319,7 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
         response.cbenef_sugerido = sugerido || '-';
         response.message = sugerido
           ? `cBenef não existe na tabela oficial. Sugestão para CST ${cst}: ${sugerido}`
-          : 'cBenef não existe na tabela oficial.';
+          : `cBenef não existe na tabela oficial. ${cstEntries.length > 0 ? `${cstEntries.length} opções disponíveis para CST ${cst} — verificar qual se aplica ao produto.` : ''}`;
         return response;
       }
 
@@ -325,7 +339,7 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
         response.status = 'ERRO';
         response.message = sugerido
           ? `CST ${cst} NÃO permitido para este cBenef. Sugestão: ${sugerido}`
-          : `CST ${cst} NÃO permitido (permitidos: ${match.applicableCST.join(', ') || 'nenhum listado'})`;
+          : `CST ${cst} NÃO permitido (permitidos: ${match.applicableCST.join(', ') || 'nenhum listado'}). ${cstEntries.length > 0 ? `${cstEntries.length} opções disponíveis para CST ${cst} — verificar qual se aplica.` : ''}`;
       }
 
       return response;
@@ -545,6 +559,19 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
         ? officialTable.filter(item => item.applicableCST.includes(cst))
         : [];
 
+      // Generic catch-all codes that should not be auto-suggested when specific benefit entries exist
+      const GENERIC_CODES = ['SEM CBENEF', 'SP099090'];
+
+      // Partition applicable entries into specific benefits and generic catch-all codes in a single pass
+      const specificEntries = [];
+      const genericEntries = [];
+      for (const e of applicableEntries) {
+        (GENERIC_CODES.includes(e.code) ? genericEntries : specificEntries).push(e);
+      }
+
+      // Sorted opcoes: specific entries first, generic catch-all codes at the end
+      const sortedOpcoes = [...specificEntries, ...genericEntries].map(e => e.code);
+
       let cbenefSugerido = '-';
       let status = 'INFO';
       let message = '';
@@ -556,14 +583,26 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
         status = 'INFO';
         message = `CST ${cst} não requer cBenef`;
         cbenefSugerido = 'Não aplicável';
-      } else {
-        // Prefer "SEM CBENEF" as the default suggestion when present, otherwise first entry
-        const semCbenef = applicableEntries.find(e => e.code === 'SEM CBENEF');
-        cbenefSugerido = semCbenef ? semCbenef.code : applicableEntries[0].code;
+      } else if (applicableEntries.length === 1) {
+        // Only one option — suggest it directly
+        cbenefSugerido = applicableEntries[0].code;
         status = 'OK';
-        message = applicableEntries.length === 1
-          ? `1 opção para CST ${cst}`
-          : `${applicableEntries.length} opções disponíveis para CST ${cst}`;
+        message = `1 opção para CST ${cst}: ${cbenefSugerido}`;
+      } else if (specificEntries.length === 0) {
+        // Only generic options available (e.g. SEM CBENEF / SP099090)
+        cbenefSugerido = 'SEM CBENEF';
+        status = 'OK';
+        message = `${applicableEntries.length} opções para CST ${cst}`;
+      } else if (specificEntries.length === 1) {
+        // Exactly one specific benefit matches this CST — suggest it
+        cbenefSugerido = specificEntries[0].code;
+        status = 'OK';
+        message = `cBenef identificado para CST ${cst}: ${cbenefSugerido}`;
+      } else {
+        // Multiple specific options — cannot auto-determine without further product info (e.g. NCM)
+        cbenefSugerido = '-';
+        status = 'AVISO';
+        message = `${applicableEntries.length} opções disponíveis para CST ${cst} — verificar qual se aplica ao produto`;
       }
 
       return {
@@ -576,7 +615,7 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
         cfop: cfop || '-',
         cst: cst || '-',
         cbenef_sugerido: cbenefSugerido,
-        opcoes: applicableEntries.map(e => e.code),
+        opcoes: sortedOpcoes,
         status,
         message
       };
