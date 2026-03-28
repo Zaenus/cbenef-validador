@@ -116,6 +116,57 @@ function findNcmMapping(ncm, cfop, cst) {
   )[0];
 }
 
+/**
+ * Returns 'saida' when the CFOP indicates an outbound operation (5xxx, 6xxx, 7xxx),
+ * 'entrada' when it indicates an inbound operation (1xxx, 2xxx, 3xxx), or null when
+ * the CFOP is absent or unrecognised.
+ */
+function getOperationDirection(cfop) {
+  if (!cfop) return null;
+  const cfopStr = String(cfop).replace(/\D/g, '');
+  if (!cfopStr) return null;
+  const first = cfopStr.charAt(0);
+  if (first === '5' || first === '6' || first === '7') return 'saida';
+  if (first === '1' || first === '2' || first === '3') return 'entrada';
+  return null;
+}
+
+/**
+ * Returns true when a cBenef entry's description is compatible with the given
+ * operation direction ('saida' or 'entrada').
+ *
+ * Rules (applied after NFD accent-normalisation, so 'saída'→'saida', 'aquisição'→'aquisicao'):
+ *   - If the description mentions 'saida'/'saidas' it is for outbound only.
+ *   - If the description mentions 'entrada'/'entradas' or starts with 'aquisi' (aquisição)
+ *     it is for inbound only.
+ *   - General descriptions (no direction keyword) are compatible with both directions.
+ */
+function descriptionMatchesDirection(description, direction) {
+  if (!description || !direction) return true;
+  const norm = description.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const hasSaida   = /\bsaida/.test(norm);
+  const hasEntrada = /\bentrada|\baquisi/.test(norm); // 'aquisicao' after NFD normalisation
+  if (direction === 'saida')   return hasSaida || !hasEntrada;
+  if (direction === 'entrada') return hasEntrada || !hasSaida;
+  return true;
+}
+
+/**
+ * Filters a list of specific cBenef entries by the inferred operation direction,
+ * keeping entries whose description is compatible with 'saida' or 'entrada'.
+ * Falls back to the original list when the direction is unknown or when filtering
+ * would remove all candidates (so the caller always receives at least one option).
+ */
+function filterEntriesByDirection(entries, cfop) {
+  const direction = getOperationDirection(cfop);
+  if (!direction) return entries;
+  const filtered = entries.filter(e => descriptionMatchesDirection(e.description, direction));
+  // Fall back to the unfiltered list rather than returning nothing; the caller still
+  // has the correct entries for ambiguous descriptions.
+  return filtered.length > 0 ? filtered : entries;
+}
+
 // Validate endpoint (same as before)
 app.post('/api/validate', (req, res) => {
   const { uf, cbenef, cst } = req.body;
@@ -448,16 +499,18 @@ app.post('/api/bulk-validate-products', uploadLimiter, upload.single('products')
         const specificEntries = entries.filter(e => !GENERIC_CBENEF_CODES.includes(e.code));
         if (specificEntries.length === 1) return specificEntries[0].code;
         if (specificEntries.length === 0) return 'SEM CBENEF';
-        // Multiple specific options — try to refine using NCM + CFOP mapping
+        // Multiple specific options — first filter by operation direction (saída vs entrada)
+        // derived from the CFOP, then try to refine using NCM + CFOP mapping.
+        const candidates = filterEntriesByDirection(specificEntries, cfop !== '-' ? cfop : '');
         if (ncm && ncm !== '-') {
           const ncmEntry = findNcmMapping(ncm, cfop !== '-' ? cfop : '', cstCode);
           if (ncmEntry) {
-            const confirmed = specificEntries.find(e => e.code === ncmEntry.cbenef);
+            const confirmed = candidates.find(e => e.code === ncmEntry.cbenef);
             if (confirmed) return confirmed.code;
           }
         }
-        // Fall back to the first specific entry when NCM mapping cannot narrow it down
-        return specificEntries[0].code;
+        // Fall back to the first direction-matched candidate
+        return candidates[0].code;
       };
 
       if (!cbenef || cbenef === '-') {
@@ -758,14 +811,17 @@ app.post('/api/assign-cbenef', uploadLimiter, upload.single('products'), (req, r
         status = 'OK';
         message = `cBenef identificado para CST ${cst}: ${cbenefSugerido}`;
       } else {
-        // Multiple specific options — try to narrow down using NCM + CFOP mapping
+        // Multiple specific options — first filter by operation direction (saída vs entrada)
+        // derived from the CFOP, then try to narrow down using NCM + CFOP mapping.
+        const candidates = filterEntriesByDirection(specificEntries, cfop);
+
         const ncmEntry = ncm ? findNcmMapping(ncm, cfop || '', cst) : null;
         const confirmedEntry = ncmEntry
-          ? specificEntries.find(e => e.code === ncmEntry.cbenef)
+          ? candidates.find(e => e.code === ncmEntry.cbenef)
           : null;
 
-        // Use NCM-confirmed entry when available, otherwise fall back to the first specific entry
-        cbenefSugerido = confirmedEntry ? confirmedEntry.code : specificEntries[0].code;
+        // Use NCM-confirmed entry when available, otherwise fall back to the best direction-matched candidate
+        cbenefSugerido = confirmedEntry ? confirmedEntry.code : candidates[0].code;
         status = confirmedEntry ? 'OK' : 'AVISO';
         message = confirmedEntry
           ? `cBenef identificado por NCM ${ncm} / CST ${cst}: ${cbenefSugerido}`
